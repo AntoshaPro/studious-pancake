@@ -11,6 +11,7 @@ import constants as const
 from constants import AD_BTN_X, AD_BTN_Y, AD_CLOSE_POINTS
 from ad_detector_2248 import EndGameAdDetector2248, send_tap_like_mouse
 from end_game_handler import EndGameHandler
+from heuristics_2248 import Heuristics2248
 
 
 class GameLogic:
@@ -34,6 +35,9 @@ class GameLogic:
 
         self.ad_detector = EndGameAdDetector2248()
         self.end_handler = EndGameHandler(self.screen_processor)
+        
+        # Initialize heuristics engine
+        self.heuristics = Heuristics2248(self)
 
     def set_ad_detector(self, detector):
         self.ad_end_detector = detector
@@ -250,114 +254,8 @@ class GameLogic:
         return True
 
     def evaluate_chain_smart(self, chain):
-        if not chain:
-            return -999999
-
-        base_value = sum(self.board[r][c] for r, c in chain)
-        length_bonus = len(chain) * 100
-
-        if len(chain) > 5:
-            length_penalty = (len(chain) - 5) * 40
-        else:
-            length_penalty = 0
-
-        position_weight = 0
-        center_r, center_c = const.ROWS // 2, const.COLS // 2
-        for r, c in chain:
-            distance = abs(r - center_r) + abs(c - center_c)
-            position_weight += max(0, 10 - distance * 2)
-        position_bonus = position_weight * 3
-
-        bridge_penalty = 0
-        for r, c in chain:
-            cell_value = self.board[r][c]
-            for dr, dc in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
-                nr, nc = r + dr, c + dc
-                if 0 <= nr < const.ROWS and 0 <= nc < const.COLS:
-                    if (nr, nc) not in chain:
-                        neighbor_value = self.board[nr][nc]
-                        if neighbor_value > 0 and self.is_potential_pair(
-                            cell_value, neighbor_value
-                        ):
-                            penalty = 20 * (cell_value // 64)
-                            if self.count_potential_pairs(nr, nc) == 1:
-                                penalty *= 2
-                            bridge_penalty += penalty
-
-        cleanup_bonus = 0
-        for r, c in chain:
-            for dr, dc in [
-                (0, 1),
-                (1, 0),
-                (0, -1),
-                (-1, 0),
-                (1, 1),
-                (1, -1),
-                (-1, 1),
-                (-1, -1),
-            ]:
-                nr, nc = r + dr, c + dc
-                if 0 <= nr < const.ROWS and 0 <= nc < const.COLS:
-                    if self.board[nr][nc] == -1:
-                        cleanup_bonus += 5
-
-        isolation_penalty = 0
-        if len(chain) >= 2:
-            chain_values = [self.board[r][c] for r, c in chain]
-            for value in chain_values:
-                if value >= 128:
-                    same_values_left = False
-                    for r in range(const.ROWS):
-                        for c in range(const.COLS):
-                            if (r, c) not in chain and self.board[r][c] == value:
-                                same_values_left = True
-                                break
-                        if same_values_left:
-                            break
-                    if not same_values_left:
-                        isolation_penalty += 30 * (value // 128)
-
-        future_pair_bonus = 0
-        simulated = [row[:] for row in self.board]
-        for r, c in chain:
-            simulated[r][c] = -1
-
-        for r in range(const.ROWS):
-            for c in range(const.COLS):
-                if simulated[r][c] > 0:
-                    for dr, dc in [(0, 1), (1, 0)]:
-                        nr, nc = r + dr, c + dc
-                        if 0 <= nr < const.ROWS and 0 <= nc < const.COLS:
-                            if (
-                                simulated[nr][nc] > 0
-                                and simulated[r][c] == simulated[nr][nc]
-                            ):
-                                future_pair_bonus += 25 * (simulated[r][c] // 64)
-
-        connectivity_penalty = 0
-        for r, c in chain:
-            neighbor_count = 0
-            for dr, dc in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
-                nr, nc = r + dr, c + dc
-                if 0 <= nr < const.ROWS and 0 <= nc < const.COLS:
-                    if self.board[nr][nc] > 0:
-                        neighbor_count += 1
-            if neighbor_count >= 3:
-                connectivity_penalty += 15
-
-        total_score = (
-            base_value
-            + length_bonus
-            - length_penalty
-            + position_bonus
-            + cleanup_bonus
-            + future_pair_bonus
-            - bridge_penalty
-            - isolation_penalty
-            - connectivity_penalty
-        )
-
-        return total_score
+        # Delegate to the heuristics engine
+        return self.heuristics.evaluate_chain(chain)
 
     def is_potential_pair(self, val1, val2):
         return val1 == val2 or val1 * 2 == val2 or val2 * 2 == val1

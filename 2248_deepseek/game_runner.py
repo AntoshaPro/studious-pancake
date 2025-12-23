@@ -134,7 +134,7 @@ class GameRunner:
                     if self.ad_end_detector:
                         print("▶️ Жму кнопку просмотра рекламы через ad_end_detector...")
                         try:
-                            ok = self.ad_detector.tap_ad_button(
+                            ok = self.ad_end_detector.tap_ad_button(
                                 self.screen_processor.adb_command
                             )
 

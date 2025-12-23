@@ -95,6 +95,16 @@ class Auto2248Bot:
         """Короткий доступ к текущему конфигу."""
         return self.config_manager.config
 
+    def show_problem_cells(self):
+        """Show problem cells for debugging and manual review."""
+        print(f"📊 Накоплено проблемных клеток: {len(self.config_manager.problem_cells)}")
+        for i, problem in enumerate(self.config_manager.problem_cells[-10:], 1):  # Show last 10
+            print(f"  {i}. {problem['cell']} | цвет: {problem['color']} | метка: {problem['guessed_label']} | "
+                  f"дистанция: {problem['distance']:.2f} | уверенность: {problem['confidence']:.2f} | "
+                  f"время: {problem['timestamp']}")
+        if len(self.config_manager.problem_cells) > 10:
+            print(f"   ... и ещё {len(self.config_manager.problem_cells) - 10} проблемных клеток")
+
     @property
     def board(self):
         """Текущая доска, которую держит GameLogic."""
