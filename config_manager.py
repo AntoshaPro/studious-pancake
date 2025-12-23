@@ -107,3 +107,24 @@ class ConfigManager:
                 file.unlink(missing_ok=True)
 
         print("✅ Все настройки сброшены")
+
+    def show_problem_cells(self):
+        """Показать накопленные проблемные клетки с деталями."""
+        if not self.problem_cells:
+            print("📦 Нет проблемных клеток для отображения")
+            return
+        
+        print(f"\n📋 Найдено {len(self.problem_cells)} проблемных клеток:")
+        print("-" * 80)
+        
+        for i, problem in enumerate(self.problem_cells, 1):
+            path = problem.get("path", "N/A")
+            color = problem.get("color", [0, 0, 0])
+            confidence = problem.get("confidence", 0)
+            recognized_as = problem.get("recognized_as", "N/A")
+            timestamp = problem.get("timestamp", "N/A")
+            
+            print(f"{i:2d}. Файл: {path}")
+            print(f"    Цвет: RGB{color} | Распознано как: {recognized_as} | Уверенность: {confidence:.2f}")
+            print(f"    Время: {timestamp}")
+            print()

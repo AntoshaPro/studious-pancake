@@ -112,3 +112,7 @@ class Auto2248Bot:
         - проверкой конца игры/рекламы.
         """
         return self.game_runner.run_auto_game(max_moves)
+
+    def show_problem_cells(self):
+        """Показать накопленные проблемные клетки."""
+        return self.config_manager.show_problem_cells()
