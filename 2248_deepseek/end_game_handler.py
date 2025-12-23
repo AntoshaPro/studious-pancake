@@ -10,7 +10,6 @@ class EndGameHandler:
     def __init__(self, screen_processor):
         self.sp = screen_processor
         self.threshold = const.END_MSE_THRESHOLD
-        folder=const.END_SCREENS_DIR,
         self.restart_xy = (const.RESTART_BTN_X, const.RESTART_BTN_Y)
         self.win_templates, self.lose_templates = self._load_templates(
             const.END_SCREENS_DIR
