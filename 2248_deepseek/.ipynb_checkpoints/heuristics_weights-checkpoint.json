@@ -1,0 +1,10 @@
+{
+  "length_bonus": 80,
+  "small_bonus": 100,
+  "straight_bonus": 20,
+  "open_cell_coef": 8,
+  "pair_coef": 40,
+  "bridge_penalty_base": 20,
+  "isolation_penalty_base": 30,
+  "center_penalty_base": 40
+}
