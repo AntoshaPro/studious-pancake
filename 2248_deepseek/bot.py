@@ -55,6 +55,11 @@ class Auto2248Bot:
 
         # Детектор кнопки рекламы / продолжения (по шаблону)
         self.ad_end_detector = EndGameAdDetector2248()
+        # Настройка fallback-координат из констант
+        from constants import AD_BTN_X, AD_BTN_Y
+        self.ad_end_detector.set_fallback_button(AD_BTN_X, AD_BTN_Y)
+        
+        # Попытка загрузить шаблон, если он существует
         if Path("end_button_template.png").exists():
             self.ad_end_detector.load_button_template("end_button_template.png")
 

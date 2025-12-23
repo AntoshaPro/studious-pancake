@@ -46,10 +46,8 @@ class EndGameAdDetector2248:
         self.roi = None  # (x1, y1, x2, y2)
 
         # fallback-координаты (по умолчанию из констант)
-        if hasattr(const, "AD_BTN_X") and hasattr(const, "AD_BTN_Y"):
-            self.fallback_btn = (int(const.AD_BTN_X), int(const.AD_BTN_Y))
-        else:
-            self.fallback_btn = None
+        from constants import AD_BTN_X, AD_BTN_Y
+        self.fallback_btn = (int(AD_BTN_X), int(AD_BTN_Y))
 
         self.use_fallback_if_not_found = True
 

@@ -8,7 +8,6 @@ __pycache__/
 # Logs and temp files
 *.log
 *.tmp
-*.swp
 
 # Environment
 .env
@@ -18,4 +17,16 @@ __pycache__/
 # Editors
 .vscode/
 .idea/
+*.swp
+*.swo
+
+# Dependencies
+venv/
+.venv/
+node_modules/
+
+# Build artifacts
+dist/
+build/
+target/
 ```
