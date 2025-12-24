@@ -1,17 +1,29 @@
-# end_game_handler.py
 from pathlib import Path
 import time
 import cv2
 import numpy as np
 import constants as const
+import inspect
 
 
 class EndGameHandler:
     def __init__(self, screen_processor):
+        # Кто вызвал конструктор
+        frame = inspect.currentframe().f_back
+        caller_func = frame.f_code.co_name
+        caller_file = frame.f_code.co_filename
+        caller_line = frame.f_lineno
+
+        print(
+            f"[INIT EndGameHandler] создан из {caller_func} "
+            f"({caller_file}:{caller_line})"
+        )
+
         self.sp = screen_processor
         self.threshold = const.END_MSE_THRESHOLD
-        folder=const.END_SCREENS_DIR,
         self.restart_xy = (const.RESTART_BTN_X, const.RESTART_BTN_Y)
+
+        # Загружаем шаблоны один раз
         self.win_templates, self.lose_templates = self._load_templates(
             const.END_SCREENS_DIR
         )

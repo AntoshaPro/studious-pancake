@@ -47,7 +47,7 @@ class InputController:
             end_x, end_y = self.to_abs_coords(config, ex_px, ey_px)
 
             for s in range(steps + 1):
-                t = s / steps
+                t = 0 if steps == 0 else s / steps
                 x = int(start_x + (end_x - start_x) * t)
                 y = int(start_y + (end_y - start_y) * t)
                 if not all_points or (x, y) != all_points[-1]:

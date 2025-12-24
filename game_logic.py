@@ -1,16 +1,26 @@
-# game_logic.py
 import time
 import random
 from collections import deque
+import json  # для optimal_orders.json
 import cv2
 import numpy as np
 from datetime import datetime
 from pathlib import Path
 
 import constants as const
-from constants import AD_BTN_X, AD_BTN_Y, AD_CLOSE_POINTS
+from constants import AD_BTN_X, AD_BTN_Y, AD_CLOSE_POINTS, ORDER_FILE
 from ad_detector_2248 import EndGameAdDetector2248, send_tap_like_mouse
 from end_game_handler import EndGameHandler
+from heuristics_2248 import Heuristics2248
+from find_best_chain_smart import find_best_chain_smart as find_best_chain_smart_fn
+from remember_problem_cell import remember_problem_cell as remember_problem_cell_fn
+from find_all_chains import find_all_chains as find_all_chains_fn
+from evaluate_chain_smart import evaluate_chain_smart as evaluate_chain_smart_fn
+from recognize_board_with_confidence import (
+    recognize_board_with_confidence as recognize_board_with_confidence_fn,
+)
+from good_moves_manager import GoodMovesManager
+from position_memory import PositionMemory
 
 
 class GameLogic:
@@ -28,169 +38,101 @@ class GameLogic:
         self.last_move_hash = None
         self.last_move_type = None
         self.last_move_direction = None
+        self.position_memory = PositionMemory()
 
+        # сохраняем хорошие ходы
+        self.good_moves = GoodMovesManager()
+        # подключение конца рекламы
         self.ad_end_detector = None
-        self.show_board_each_move = False
-
+        self.show_board_each_move = True
         self.ad_detector = EndGameAdDetector2248()
-        self.end_handler = EndGameHandler(self.screen_processor)
+        self.end_handler = None
+
+        # кэш цепочек по хешу доски
+        self.chain_cache: dict[int, list[tuple[int, int]]] = {}
+
+        # ==== Порядки длин цепочек (для перебора стратегий) ====
+        self.current_order_index: int = 0
+        self.optimal_lengths: list[int] = [
+            4,
+            5,
+            3,
+            6,
+            2,
+            7,
+            8,
+            9,
+        ]  # [8, 4, 2, 3, 6, 5, 7, 9]
+        self.load_current_order()
+
+    def load_current_order(self):
+        """
+        Загружает из ORDER_FILE (optimal_orders.json) текущий порядок длин.
+        """
+        if not ORDER_FILE.exists():
+            print(
+                "[ORDER] Файл с порядками не найден, использую дефолт:",
+                self.optimal_lengths,
+            )
+            return
+
+        try:
+            data = json.loads(ORDER_FILE.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            print("[ORDER] Ошибка чтения JSON, использую дефолтный порядок.")
+            return
+
+        orders = data.get("orders", [])
+        idx = data.get("current_index", 1)
+        if not orders:
+            print("[ORDER] В JSON нет orders, использую дефолтный порядок.")
+            return
+
+        self.current_order_index = idx % len(orders)
+        self.optimal_lengths = orders[self.current_order_index]
+        print(f"[ORDER] Порядок #{self.current_order_index}: {self.optimal_lengths}")
 
     def set_ad_detector(self, detector):
         self.ad_end_detector = detector
 
-    # ===== РАСПОЗНАВАНИЕ ДОСКИ =====
+    # ===== РАСПОЗНАВАНИЕ ДОСКИ / ПАМЯТЬ ПОЗИЦИЙ =====
+
+    def on_new_board(self):
+        board_hash = self.get_board_hash()  # Zobrist
+        if self.position_memory.was_seen(board_hash):
+            print("[POSITION] Уже видел такую конфигурацию (в т.ч. в прошлых играх)")
+        else:
+            print("[POSITION] Новая конфигурация доски")
+            self.position_memory.mark_seen(board_hash)
 
     def recognize_board_with_confidence(self):
-        if not self.config.get("calibrated", False):
-            print("❌ Бот не обучен!")
-            return None, None
-
-        self.board = [[-1 for _ in range(const.COLS)] for _ in range(const.ROWS)]
-        confidence_board = [[0.0 for _ in range(const.COLS)] for _ in range(const.ROWS)]
-
-        for r in range(const.ROWS):
-            for c in range(const.COLS):
-                cell_path = const.CELLS_DIR / f"cell_{r}_{c}.png"
-                if not cell_path.exists():
-                    continue
-
-                color = self.screen_processor.extract_color_from_cell(cell_path)
-                if color is None:
-                    continue
-
-                best_label = None
-                best_distance = float("inf")
-                second_best_distance = float("inf")
-
-                for label, learned_colors in self.config["colors"].items():
-                    if not learned_colors:
-                        continue
-
-                    distances = []
-                    for sample_color in learned_colors:
-                        color_arr = np.array(color, dtype=np.float32)
-                        sample_arr = np.array(sample_color, dtype=np.float32)
-                        distance = np.sqrt(np.sum((color_arr - sample_arr) ** 2))
-                        distances.append(distance)
-
-                    min_dist = min(distances) if distances else float("inf")
-
-                    if min_dist < best_distance:
-                        second_best_distance = best_distance
-                        best_distance = min_dist
-                        best_label = label
-                    elif min_dist < second_best_distance:
-                        second_best_distance = min_dist
-
-                if best_distance < float("inf") and second_best_distance < float("inf"):
-                    if best_distance + second_best_distance > 0:
-                        confidence = 1.0 - (
-                            best_distance / (best_distance + second_best_distance)
-                        )
-                    else:
-                        confidence = 1.0
-                else:
-                    confidence = 0.0
-
-                threshold = self.adaptive_threshold
-
-                if (
-                    best_distance < threshold
-                    and confidence > self.confidence_threshold
-                    and best_label
-                ):
-                    if best_label == "adv":
-                        self.board[r][c] = -1
-                    else:
-                        self.board[r][c] = int(best_label)
-                    confidence_board[r][c] = confidence
-                else:
-                    self.board[r][c] = -1
-                    confidence_board[r][c] = confidence
-
-                    if best_label not in (None, "adv"):
-                        self.remember_problem_cell(
-                            cell_path, color, best_label, best_distance, confidence
-                        )
-
-        return self.board, confidence_board
+        return recognize_board_with_confidence_fn(self)
 
     def remember_problem_cell(
         self, cell_path, color, guessed_label, distance, confidence
     ):
-        color_list = [int(c) for c in color]
+        return remember_problem_cell_fn(
+            self, cell_path, color, guessed_label, distance, confidence
+        )
 
-        problem = {
-            "cell": str(cell_path),
-            "color": color_list,
-            "guessed_label": str(guessed_label),
-            "distance": float(distance),
-            "confidence": float(confidence),
-            "timestamp": datetime.now().isoformat(),
-        }
-
-        self.config_manager.problem_cells.append(problem)
-        if len(self.config_manager.problem_cells) > 50:
-            self.config_manager.problem_cells = self.config_manager.problem_cells[-50:]
-
-        if len(self.config_manager.problem_cells) % 5 == 0:
-            self.config_manager.save_problem_cells()
+    # ===== ХЕШ ДОСКИ =====
 
     def get_board_hash(self):
-        return hash(str(self.board))
+        h = 0
+        for r in range(const.ROWS):
+            for c in range(const.COLS):
+                v = self.board[r][c]
+                if v < 0:
+                    v = 0
+                if v > const.MAX_VALUE:
+                    v = const.MAX_VALUE
+                h ^= const.ZOBRIST_TABLE[(r, c, v)]
+        return h
 
     # ===== ПОИСК ЦЕПОЧЕК =====
 
     def find_all_chains(self):
-        directions = [
-            (0, 1),
-            (1, 0),
-            (0, -1),
-            (-1, 0),
-            (1, 1),
-            (1, -1),
-            (-1, 1),
-            (-1, -1),
-        ]
-
-        all_chains = []
-
-        for r in range(const.ROWS):
-            for c in range(const.COLS):
-                start_val = self.board[r][c]
-                if start_val <= 0:
-                    continue
-
-                stack = [([(r, c)], start_val, {(r, c)})]
-
-                while stack:
-                    current_path, current_val, visited = stack.pop()
-
-                    if len(current_path) >= 2:
-                        if self.is_valid_chain(current_path):
-                            all_chains.append(current_path.copy())
-
-                    last_r, last_c = current_path[-1]
-
-                    for dr, dc in directions:
-                        nr, nc = last_r + dr, last_c + dc
-
-                        if not (0 <= nr < const.ROWS and 0 <= nc < const.COLS):
-                            continue
-                        if (nr, nc) in visited:
-                            continue
-
-                        next_val = self.board[nr][nc]
-                        if next_val <= 0:
-                            continue
-
-                        if next_val == current_val or next_val == current_val * 2:
-                            new_path = current_path + [(nr, nc)]
-                            new_visited = visited.copy()
-                            new_visited.add((nr, nc))
-                            stack.append((new_path, next_val, new_visited))
-
-        return self._filter_chains(all_chains)
+        return find_all_chains_fn(self)
 
     def is_valid_chain(self, chain):
         if len(chain) < 2:
@@ -250,114 +192,7 @@ class GameLogic:
         return True
 
     def evaluate_chain_smart(self, chain):
-        if not chain:
-            return -999999
-
-        base_value = sum(self.board[r][c] for r, c in chain)
-        length_bonus = len(chain) * 100
-
-        if len(chain) > 5:
-            length_penalty = (len(chain) - 5) * 40
-        else:
-            length_penalty = 0
-
-        position_weight = 0
-        center_r, center_c = const.ROWS // 2, const.COLS // 2
-        for r, c in chain:
-            distance = abs(r - center_r) + abs(c - center_c)
-            position_weight += max(0, 10 - distance * 2)
-        position_bonus = position_weight * 3
-
-        bridge_penalty = 0
-        for r, c in chain:
-            cell_value = self.board[r][c]
-            for dr, dc in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
-                nr, nc = r + dr, c + dc
-                if 0 <= nr < const.ROWS and 0 <= nc < const.COLS:
-                    if (nr, nc) not in chain:
-                        neighbor_value = self.board[nr][nc]
-                        if neighbor_value > 0 and self.is_potential_pair(
-                            cell_value, neighbor_value
-                        ):
-                            penalty = 20 * (cell_value // 64)
-                            if self.count_potential_pairs(nr, nc) == 1:
-                                penalty *= 2
-                            bridge_penalty += penalty
-
-        cleanup_bonus = 0
-        for r, c in chain:
-            for dr, dc in [
-                (0, 1),
-                (1, 0),
-                (0, -1),
-                (-1, 0),
-                (1, 1),
-                (1, -1),
-                (-1, 1),
-                (-1, -1),
-            ]:
-                nr, nc = r + dr, c + dc
-                if 0 <= nr < const.ROWS and 0 <= nc < const.COLS:
-                    if self.board[nr][nc] == -1:
-                        cleanup_bonus += 5
-
-        isolation_penalty = 0
-        if len(chain) >= 2:
-            chain_values = [self.board[r][c] for r, c in chain]
-            for value in chain_values:
-                if value >= 128:
-                    same_values_left = False
-                    for r in range(const.ROWS):
-                        for c in range(const.COLS):
-                            if (r, c) not in chain and self.board[r][c] == value:
-                                same_values_left = True
-                                break
-                        if same_values_left:
-                            break
-                    if not same_values_left:
-                        isolation_penalty += 30 * (value // 128)
-
-        future_pair_bonus = 0
-        simulated = [row[:] for row in self.board]
-        for r, c in chain:
-            simulated[r][c] = -1
-
-        for r in range(const.ROWS):
-            for c in range(const.COLS):
-                if simulated[r][c] > 0:
-                    for dr, dc in [(0, 1), (1, 0)]:
-                        nr, nc = r + dr, c + dc
-                        if 0 <= nr < const.ROWS and 0 <= nc < const.COLS:
-                            if (
-                                simulated[nr][nc] > 0
-                                and simulated[r][c] == simulated[nr][nc]
-                            ):
-                                future_pair_bonus += 25 * (simulated[r][c] // 64)
-
-        connectivity_penalty = 0
-        for r, c in chain:
-            neighbor_count = 0
-            for dr, dc in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
-                nr, nc = r + dr, c + dc
-                if 0 <= nr < const.ROWS and 0 <= nc < const.COLS:
-                    if self.board[nr][nc] > 0:
-                        neighbor_count += 1
-            if neighbor_count >= 3:
-                connectivity_penalty += 15
-
-        total_score = (
-            base_value
-            + length_bonus
-            - length_penalty
-            + position_bonus
-            + cleanup_bonus
-            + future_pair_bonus
-            - bridge_penalty
-            - isolation_penalty
-            - connectivity_penalty
-        )
-
-        return total_score
+        return evaluate_chain_smart_fn(self, chain)
 
     def is_potential_pair(self, val1, val2):
         return val1 == val2 or val1 * 2 == val2 or val2 * 2 == val1
@@ -375,54 +210,30 @@ class GameLogic:
                     count += 1
         return count
 
-    def find_best_chain_smart(self, board_hash):
-        chains = self.find_all_chains()
+    def find_best_chain_smart(self, board_hash: int):
+        # пробуем достать из кэша
 
-        if not chains:
-            return None
+        if board_hash in self.chain_cache:
+            print("[CACHE HIT]", board_hash)
+            return self.chain_cache[board_hash]
 
-        chains_by_length = {}
-        for chain in chains:
-            length = len(chain)
-            if length not in chains_by_length:
-                chains_by_length[length] = []
-            chains_by_length[length].append(chain)
+        print("[CACHE MISS]", board_hash)
+        print("[ORDER-RUN] current optimal_lengths:", self.optimal_lengths)
+        # вызываем вынесенную функцию с порядком из JSON
+        best_chain = find_best_chain_smart_fn(
+            self.board,
+            board_hash,
+            self.is_move_blacklisted,
+            self.evaluate_chain_smart,
+            self.find_all_chains,
+            optimal_lengths=self.optimal_lengths,
+        )
 
-        optimal_lengths = [4, 5, 3, 6, 2, 7, 8, 9]
+        # кладём в кэш, если нашли цепочку
+        if best_chain is not None:
+            self.chain_cache[board_hash] = best_chain
 
-        for length in optimal_lengths:
-            if length in chains_by_length:
-                valid_chains = []
-                for chain in chains_by_length[length]:
-                    move_key = (
-                        f"chain_{len(chain)}_{chain[0][0]}_{chain[0][1]}_"
-                        f"{chain[-1][0]}_{chain[-1][1]}"
-                    )
-                    if not self.is_move_blacklisted(board_hash, move_key):
-                        valid_chains.append(chain)
-
-                if valid_chains:
-                    best_chain = max(
-                        valid_chains, key=lambda c: self.evaluate_chain_smart(c)
-                    )
-                    chain_score = self.evaluate_chain_smart(best_chain)
-
-                    if chain_score > 100 or length <= 5:
-                        return best_chain
-
-        all_valid_chains = []
-        for chain in chains:
-            move_key = (
-                f"chain_{len(chain)}_{chain[0][0]}_{chain[0][1]}_"
-                f"{chain[-1][0]}_{chain[-1][1]}"
-            )
-            if not self.is_move_blacklisted(board_hash, move_key):
-                all_valid_chains.append(chain)
-
-        if all_valid_chains:
-            return max(all_valid_chains, key=lambda c: self.evaluate_chain_smart(c))
-
-        return None
+        return best_chain
 
     def simulate_board_after_move(self, chain):
         simulated = [row[:] for row in self.board]
@@ -450,6 +261,13 @@ class GameLogic:
     def is_move_blacklisted(self, board_hash, move_key):
         return move_key in self.config_manager.bad_moves.get(board_hash, [])
 
+    def remember_good_move(self, board_hash, move_type, direction, score):
+        move_key = f"{move_type}_{direction}"
+        self.good_moves.remember_good_move(board_hash, move_key, score)
+
+    def get_known_good_moves(self, board_hash):
+        return self.good_moves.get_good_moves(board_hash)
+
     def remember_bad_move(self, move_context):
         board_hash = move_context.get("board_state", "")
         move_key = f"{move_context.get('move_type', 'unknown')}_{move_context.get('direction', 'unknown')}"
@@ -463,4 +281,3 @@ class GameLogic:
 
             self.config_manager.save_bad_moves()
             print(f"📝 Запомнил плохой ход: {move_key}")
-

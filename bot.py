@@ -10,7 +10,7 @@ from color_trainer import ColorTrainer
 from input_controller import InputController
 from end_game_handler import EndGameHandler
 from game_runner import GameRunner
-
+from board_printer import print_board
 
 class Auto2248Bot:
     """
@@ -75,7 +75,17 @@ class Auto2248Bot:
         self.ui = UI(self)
 
     # ===== Публичные методы, которые дергает main/UI =====
-
+    def save_state_and_logs(self):
+        """Сохранить статистику и состояние перед выходом."""
+        print("[STATE] Сохраняю статистику и логи...")
+        # плохие ходы / конфиг
+        self.config_manager.save_bad_moves()
+        self.config_manager.save_config()
+        # если у GameRunner есть статистика — дергаем её
+        if hasattr(self.game_runner, "save_stats"):
+            self.game_runner.save_stats()
+        print("[STATE] Сохранение завершено.")
+    
     def show_menu(self):
         """Запуск консольного меню."""
         self.ui.show_menu()
@@ -112,7 +122,3 @@ class Auto2248Bot:
         - проверкой конца игры/рекламы.
         """
         return self.game_runner.run_auto_game(max_moves)
-
-    def show_problem_cells(self):
-        """Показать накопленные проблемные клетки."""
-        return self.config_manager.show_problem_cells()

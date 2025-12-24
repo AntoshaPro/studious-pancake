@@ -1,8 +1,9 @@
 # game_runner.py
 import time
 import constants as const
-from constants import AD_CLOSE_POINTS, MOVES_DIR
+from constants import AD_CLOSE_POINTS, MOVES_DIR, GOOD_MOVE_MIN_SCORE, WAIT
 from ad_detector_2248 import send_tap_like_mouse
+from board_printer import print_board
 
 
 class GameRunner:
@@ -20,8 +21,9 @@ class GameRunner:
         self.game_logic = game_logic
         self.end_handler = end_handler
         self.input = input_controller
+        self.ad_detector = game_logic.ad_detector
         self.ad_end_detector = ad_end_detector
-        self.ad_detector = game_logic.ad_detector  # тот же объект
+        self.ads_this_game = 0
 
         self.config = config_manager.config
         self.show_board_each_move = False
@@ -39,7 +41,7 @@ class GameRunner:
             move_path = MOVES_DIR / f"move{move}.png"
             print(f"\n🎯 Ход #{move}/{max_moves}")
 
-            # 1. Скриншот без рекламы-магии (как у тебя)
+            # 1. Скриншот
             self.screen_processor.take_screenshot(str(move_path))
 
             # 2. Обрезка клеток и распознавание
@@ -49,6 +51,9 @@ class GameRunner:
                 print("❌ Не удалось распознать доску")
                 break
 
+            if self.game_logic.show_board_each_move:
+                print_board(board, confidence_board)
+            self.game_logic.on_new_board()
             # 3. Логика хода
             board_before = self.game_logic.get_board_hash()
 
@@ -99,6 +104,20 @@ class GameRunner:
                     self.config, best_chain, self.game_logic.board, steps=1
                 ):
                     print("✅ Ход выполнен (MT)")
+                    # сохраняем только реально хорошие ходы
+                    if chain_score >= GOOD_MOVE_MIN_SCORE:
+                        self.game_logic.remember_good_move(
+                            board_before,
+                            move_type="chain",
+                            direction=self.game_logic.last_move_direction,
+                            score=chain_score,
+                        )
+                    else:
+                        print(
+                            f"ℹ️ Ход с оценкой {chain_score:.1f} не сохраняю как хороший."
+                        )
+                    self.game_logic.current_move_attempts = 0
+                    self.game_logic.last_move_hash = None
                 else:
                     print("❌ Ошибка выполнения хода (MT)")
                     break
@@ -127,24 +146,30 @@ class GameRunner:
                     if state in ("win", "lose"):
                         self.game_logic.current_move_attempts = 0
                         self.game_logic.last_move_hash = None
-                        # уже перезапустили игру – переходим к следующему ходу
                         continue
 
-                    # 👉 ТУТ ЖМЁМ КНОПКУ РЕКЛАМЫ ЧЕРЕЗ ad_end_detector
                     if self.ad_end_detector:
                         print("▶️ Жму кнопку просмотра рекламы через ad_end_detector...")
                         try:
                             ok = self.ad_detector.tap_ad_button(
                                 self.screen_processor.adb_command
                             )
-
+                            print(
+                                "▶️ Жму кнопку просмотра рекламы через ad_end_detector..."
+                            )
                         except Exception as e:
                             print(f"❌ Ошибка при попытке нажать рекламу: {e}")
                             ok = False
 
                         if ok:
-                            print("⏳ Жду окончания рекламы...")
-                            time.sleep(15.0)  # подстрой под свою игру
+                            print(f"⏳ Жду окончания рекламы {WAIT} секунд...")
+                            remaining = WAIT
+                            while remaining > 0:
+                                print(f"   Ожидание: {remaining} сек...", end="\r")
+                                time.sleep(1)
+                                remaining -= 1
+                                continue
+                            print("\n⏱ Ожидание рекламы завершено.")
                             print("▶️ Пытаюсь закрыть рекламу (крестик)...")
                             res_close = False
                             for cx, cy in AD_CLOSE_POINTS:
@@ -154,10 +179,9 @@ class GameRunner:
                                     cx,
                                     cy,
                                 )
-                                time.sleep(1.0)
-                            # если хоть один крестик сработал — продолжаем
+                                time.sleep(0.05)
                             if res_close:
-                                time.sleep(2.0)
+                                time.sleep(0.05)
                                 continue
                         else:
                             print(
@@ -170,7 +194,6 @@ class GameRunner:
                         )
                         break
 
-                # если candidate_pairs есть — обычный резервный ход
                 best_pair = max(
                     candidate_pairs,
                     key=lambda ch: self.game_logic.evaluate_chain_smart(ch),
@@ -186,11 +209,25 @@ class GameRunner:
                     self.config, best_pair, self.game_logic.board, steps=1
                 ):
                     print("✅ Выполнен резервный короткий ход вместо рандома")
+                    pair_score = self.game_logic.evaluate_chain_smart(best_pair)
+                    if pair_score >= GOOD_MOVE_MIN_SCORE:
+                        self.game_logic.remember_good_move(
+                            board_before,
+                            move_type="fallback_pair",
+                            direction=self.game_logic.last_move_direction,
+                            score=pair_score,
+                        )
+                    else:
+                        print(
+                            f"ℹ️ Резервный ход с оценкой {pair_score:.1f} не сохраняю как хороший."
+                        )
+                    self.game_logic.current_move_attempts = 0
+                    self.game_logic.last_move_hash = None
                 else:
                     print("❌ Ошибка выполнения резервного хода")
                     break
 
-            # двойной вызов как в оригинале у тебя
+            # двойной вызов как в оригинале
             state = self.end_handler.check_and_restart()
             state = self.end_handler.check_and_restart()
             if state in ("win", "lose"):
@@ -198,12 +235,7 @@ class GameRunner:
                 self.game_logic.last_move_hash = None
                 continue
 
-            if self.show_board_each_move:
-                from board_printer import print_board
-
-                print_board(self.game_logic.board, confidence_board)
-
-            time.sleep(0.3)
+            time.sleep(0.01)
 
         print("\n" + "=" * 60)
         print("🏁 АВТОМАТИЧЕСКАЯ ИГРА ЗАВЕРШЕНА!")

@@ -4,6 +4,7 @@ import constants as const
 from retrainer_2248 import Retrainer2248
 from board_printer import print_board
 from calibrator import Calibrator
+from learning_stats import LearningStats
 
 
 class UI:
@@ -11,6 +12,7 @@ class UI:
         self.bot = bot
         self.retrainer = Retrainer2248(bot.config_manager, bot.screen_processor)
         self.calibrator = Calibrator(bot.config_manager, bot.screen_processor)
+        self.stats = LearningStats(bot.config_manager)
 
     def show_menu(self):
         while True:
@@ -30,6 +32,8 @@ class UI:
             print(" 10. 🗑️ Очистить проблемные клетки")
             print(" 11. 🔄 Сбросить все настройки")
             print(" 12. 🎯 Ручная подгонка сетки")
+            print(" 13. 👁 Показ доски каждый ход")
+            print(" 14. 🧹 Закрыть все окна (OpenCV)")
             print(" 0. 🚪 Выход")
 
             choice = input("\nВаш выбор: ").strip()
@@ -62,7 +66,7 @@ class UI:
             elif choice == "6":
                 if self.bot.check_adb():
                     try:
-                        moves = int(input("Сколько ходов сделать? (30): ") or "30")
+                        moves = int(input("Сколько ходов сделать? (100): ") or "100")
                         self.bot.run_auto_game(moves)
                     except ValueError:
                         print("❌ Введите число!")
@@ -71,7 +75,8 @@ class UI:
                 self.show_learning_stats()
 
             elif choice == "8":
-                self.bot.show_problem_cells()
+                # Дообучить на накопленных проблемных клетках
+                self.retrainer.interactive_retrain()
 
             elif choice == "9":
                 print("\n📋 ТЕКУЩИЕ НАСТРОЙКИ:")
@@ -100,6 +105,16 @@ class UI:
                 if self.bot.check_adb():
                     self.calibrator.manual_adjust_grid(step=20)
 
+            elif choice == "13":
+                gl = self.bot.game_logic
+                gl.show_board_each_move = not gl.show_board_each_move
+                state = "включен" if gl.show_board_each_move else "выключен"
+                print(f"👁 Показ доски каждый ход {state}")
+
+            elif choice == "14":
+                cv2.destroyAllWindows()
+                print("🧹 Все окна OpenCV закрыты.")
+
             elif choice == "0":
                 print("\n👋 До свидания!")
                 if self.bot.config_manager.problem_cells:
@@ -107,3 +122,6 @@ class UI:
                 break
 
             input("\nНажмите Enter чтобы продолжить...")
+
+    def show_learning_stats(self):
+        self.stats.print_stats()

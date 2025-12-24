@@ -16,4 +16,10 @@ if __name__ == "__main__":
         sys.exit(1)
 
     bot = Auto2248Bot()
-    bot.show_menu()
+
+    try:
+        bot.show_menu()
+    except KeyboardInterrupt:
+        print("\n[EXIT] Остановлено через Ctrl+C, сохраняем статистику и логи...")
+        bot.save_state_and_logs()   # 👈 вызов твоего метода
+        print("[EXIT] Готово, выходим.")
