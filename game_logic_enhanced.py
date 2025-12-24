@@ -26,6 +26,7 @@ from recognize_board_with_confidence import (
 from good_moves_manager import GoodMovesManager
 from position_memory import PositionMemory
 from learning_engine import LearningEngine
+from game_state_recognition import GameStateRecognizer
 
 
 class EnhancedGameLogic:
@@ -72,6 +73,9 @@ class EnhancedGameLogic:
         
         # Initialize learning engine for adaptive evaluation
         self.learning_engine = LearningEngine()
+        
+        # Initialize game state recognizer
+        self.game_state_recognizer = GameStateRecognizer()
         
         # History of move success for adaptive evaluation
         self.move_success_history = {}
@@ -424,3 +428,65 @@ class EnhancedGameLogic:
             chain_key = f"{board_hash}_{move_key}"
             if chain_key in self.move_success_history:
                 self.learning_engine.update_move_success(board_hash, (0, 0), False)  # Simplified
+    
+    def detect_game_over(self, screen_image):
+        """
+        Detect if the game is over (win or loss)
+        
+        Args:
+            screen_image: Current game screen image
+            
+        Returns:
+            Tuple of (is_game_over, result_type) where result_type is 'win', 'loss', or None
+        """
+        return self.game_state_recognizer.detect_game_over(screen_image)
+    
+    def detect_win_condition(self, target_tile=2248):
+        """
+        Detect win by checking if target tile exists on board
+        
+        Args:
+            target_tile: Target tile value to win (default 2248)
+            
+        Returns:
+            True if win condition is met
+        """
+        return self.game_state_recognizer.detect_win_condition(self.board, target_tile)
+    
+    def is_game_lost(self):
+        """
+        Check if the game is lost by checking if board is full and no moves are possible
+        
+        Returns:
+            True if no moves are possible
+        """
+        # Check if board is full
+        is_full = all(self.board[r][c] != -1 for r in range(const.ROWS) for c in range(const.COLS))
+        
+        if not is_full:
+            return False
+        
+        # Check if any adjacent cells have the same value or can merge
+        for r in range(const.ROWS):
+            for c in range(const.COLS):
+                current_val = self.board[r][c]
+                if current_val <= 0:
+                    continue
+                
+                # Check right neighbor
+                if c + 1 < const.COLS:
+                    right_val = self.board[r][c + 1]
+                    if (right_val == current_val or 
+                        right_val == current_val * 2 or 
+                        current_val == right_val * 2):
+                        return False  # Found a possible move
+                
+                # Check bottom neighbor
+                if r + 1 < const.ROWS:
+                    bottom_val = self.board[r + 1][c]
+                    if (bottom_val == current_val or 
+                        bottom_val == current_val * 2 or 
+                        current_val == bottom_val * 2):
+                        return False  # Found a possible move
+        
+        return True  # No moves possible
