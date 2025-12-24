@@ -1,8 +1,12 @@
 # evaluate_chain_smart.py
 import constants as const
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from game_logic import GameLogic
 
 
-def evaluate_chain_smart(self, chain):
+def evaluate_chain_smart(self: 'GameLogic', chain):
     print("[EVAL_FN] called, len(chain) =", len(chain))
     if not chain:
         return -999999

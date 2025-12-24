@@ -86,6 +86,12 @@ class Auto2248Bot:
             self.game_runner.save_stats()
         print("[STATE] Сохранение завершено.")
     
+    def save_for_shutdown(self):
+        """Save state specifically for shutdown process."""
+        print("\n[SHUTDOWN] Сохраняю состояние перед завершением...")
+        self.save_state_and_logs()
+        print("[SHUTDOWN] Готово, выходим.")
+    
     def show_menu(self):
         """Запуск консольного меню."""
         self.ui.show_menu()
