@@ -83,7 +83,7 @@ class GameLogic:
             return
 
         orders = data.get("orders", [])
-        idx = data.get("current_index", 1)
+        idx = data.get("current_index", 0)  # Default to 0 instead of 1 to match array indexing
         if not orders:
             print("[ORDER] В JSON нет orders, использую дефолтный порядок.")
             return
@@ -91,6 +91,9 @@ class GameLogic:
         self.current_order_index = idx % len(orders)
         self.optimal_lengths = orders[self.current_order_index]
         print(f"[ORDER] Порядок #{self.current_order_index}: {self.optimal_lengths}")
+        
+        # Store stats reference for later use
+        self.order_stats = data.get("stats", {})
 
     def set_ad_detector(self, detector):
         self.ad_end_detector = detector
