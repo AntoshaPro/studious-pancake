@@ -268,7 +268,44 @@ class EnhancedGameRunner:
             self.screen_processor.take_screenshot(str(move_path))
 
             # 2. Обрезка клеток и распознавание
-            self.screen_processor.crop_cells_from_screen(str(move_path))
+            screen_image = self.screen_processor.grab_screen_cv2()
+            if screen_image is not None:
+                # Check for win/loss conditions based on visual detection
+                is_game_over, game_result = self.game_logic.detect_game_over(screen_image)
+                if is_game_over:
+                    print(f"\\n🔴 ИГРА ОКОНЧЕНА: {game_result.upper()} (визуальное определение)!")
+                    # End the current game session
+                    success = (game_result == "win")
+                    session = self.game_state_tracker.end_current_session(game_result, success)
+                    
+                    # Create episode for learning
+                    episode = GameEpisode(
+                        board_states=self.current_episode_boards,
+                        moves=self.current_episode_moves,
+                        scores=self.current_episode_scores,
+                        final_score=session.final_state.score,
+                        max_tile=session.final_state.max_tile,
+                        duration=session.end_time - session.start_time,
+                        timestamp=session.start_time,
+                        success=success
+                    )
+                    episode.profile_used = session.profile_used  # Add profile to episode
+                    
+                    # Record the episode
+                    self.learning_engine.record_episode(episode)
+                    
+                    # Update feature weights based on the episode
+                    self.learning_engine.update_feature_weights(episode)
+                    
+                    # Emit game end event
+                    self.event_system.emit_simple(EventType.GAME_END,
+                                               {'state': game_result, 'score': session.final_state.score, 'timestamp': time.time()})
+                    
+                    self.game_logic.current_move_attempts = 0
+                    self.game_logic.last_move_hash = None
+                    break  # Exit the game loop
+            
+            self.screen_processor.crop_cells_from_image(screen_image)
             board, confidence_board = self.game_logic.recognize_board_with_confidence()
             if board is None:
                 print("❌ Не удалось распознать доску")
@@ -280,6 +317,76 @@ class EnhancedGameRunner:
             
             # Update game state tracker
             self.game_state_tracker.update_game_state(board)
+            
+            # Check for win/loss conditions based on board state
+            is_game_lost = self.game_logic.is_game_lost()
+            is_game_won = self.game_logic.detect_win_condition()
+            
+            if is_game_lost:
+                print(\"\\n🔴 ИГРА ПРОИГРАНА: Нет возможных ходов!\")
+                # End the current game session
+                success = False
+                session = self.game_state_tracker.end_current_session("lose", success)
+                
+                # Create episode for learning
+                episode = GameEpisode(
+                    board_states=self.current_episode_boards,
+                    moves=self.current_episode_moves,
+                    scores=self.current_episode_scores,
+                    final_score=session.final_state.score,
+                    max_tile=session.final_state.max_tile,
+                    duration=session.end_time - session.start_time,
+                    timestamp=session.start_time,
+                    success=success
+                )
+                episode.profile_used = session.profile_used  # Add profile to episode
+                
+                # Record the episode
+                self.learning_engine.record_episode(episode)
+                
+                # Update feature weights based on the episode
+                self.learning_engine.update_feature_weights(episode)
+                
+                # Emit game end event
+                self.event_system.emit_simple(EventType.GAME_END,
+                                           {'state': 'lose', 'score': session.final_state.score, 'timestamp': time.time()})
+                
+                self.game_logic.current_move_attempts = 0
+                self.game_logic.last_move_hash = None
+                break  # Exit the game loop
+            
+            if is_game_won:
+                print(\"\\n🎉 ИГРА ВЫИГРАНА: Достигнута цель!\")
+                # End the current game session
+                success = True
+                session = self.game_state_tracker.end_current_session("win", success)
+                
+                # Create episode for learning
+                episode = GameEpisode(
+                    board_states=self.current_episode_boards,
+                    moves=self.current_episode_moves,
+                    scores=self.current_episode_scores,
+                    final_score=session.final_state.score,
+                    max_tile=session.final_state.max_tile,
+                    duration=session.end_time - session.start_time,
+                    timestamp=session.start_time,
+                    success=success
+                )
+                episode.profile_used = session.profile_used  # Add profile to episode
+                
+                # Record the episode
+                self.learning_engine.record_episode(episode)
+                
+                # Update feature weights based on the episode
+                self.learning_engine.update_feature_weights(episode)
+                
+                # Emit game end event
+                self.event_system.emit_simple(EventType.GAME_END,
+                                           {'state': 'win', 'score': session.final_state.score, 'timestamp': time.time()})
+                
+                self.game_logic.current_move_attempts = 0
+                self.game_logic.last_move_hash = None
+                break  # Exit the game loop
             
             # Emit board recognized event
             self.event_system.emit_simple(EventType.BOARD_RECOGNIZED, 
