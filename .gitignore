@@ -5,14 +5,17 @@ __pycache__/
 *.o
 *.obj
 *.out
+*.so
+*.dll
+*.exe
 
 # Dependencies
 .venv/
 venv/
-node_modules/
-dist/
-build/
-*.egg-info/
+env/
+.env
+.env.local
+.env.*
 
 # Logs and temp files
 *.log
@@ -20,18 +23,16 @@ build/
 *.swp
 *.swo
 
-# Environment
-.env
-.env.local
-*.env.*
-
 # Editors
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# Coverage
+# Build and distribution
+dist/
+build/
+*.egg-info/
 .coverage
 coverage/
 htmlcov/
@@ -42,12 +43,8 @@ __pycache__/
 .Python
 *.pyo
 *.pyd
-*.so
-*.egg
 
-# Cache directories
-.mypy_cache/
-.pytest_cache/
-.tox/
-.coverage/
+# System files
+.DS_Store
+Thumbs.db
 ```
